@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalDrop - Transfert P2P Ultra Rapide</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PeerJS CDN -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- QRCode.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          },
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .animate-pulse-ring {
+      animation: pulse-ring 3s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col justify-between overflow-x-hidden selection:bg-brand-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800/80 bg-slate-900/50 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="p-2 bg-brand-600/20 text-brand-500 rounded-xl border border-brand-500/30 shadow-lg shadow-brand-500/10">
+          <i data-lucide="radio" class="w-6 h-6"></i>
+        </div>
+        <span class="font-bold text-xl tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">LocalDrop</span>
+      </div>
+
+      <!-- Statut de Connexion -->
+      <div class="flex items-center gap-3">
+        <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-medium text-slate-300">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="status-text">Initialisation...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Banner -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <div class="flex items-center gap-3 bg-slate-800 border border-slate-700 text-slate-100 px-4 py-3 rounded-xl shadow-2xl">
+      <i id="toast-icon" data-lucide="info" class="w-5 h-5 text-brand-500"></i>
+      <span id="toast-msg" class="text-sm font-medium">Message</span>
+    </div>
+  </div>
+
+  <!-- Contenu Principal -->
+  <main class="max-w-4xl mx-auto px-4 py-8 w-full flex-1 flex flex-col justify-center items-center">
+
+    <!-- Vue 1: Déconnecté / En attente d'association -->
+    <div id="connect-view" class="w-full max-w-md flex flex-col items-center text-center space-y-6">
+      
+      <!-- Zone visuelle d'attente -->
+      <div class="relative flex items-center justify-center p-8">
+        <div class="absolute inset-0 bg-brand-500/10 rounded-full blur-2xl animate-pulse-ring"></div>
+        <div class="relative z-10 w-28 h-28 rounded-full bg-slate-900 border border-slate-700/80 flex items-center justify-center shadow-2xl">
+          <i data-lucide="wifi" class="w-12 h-12 text-brand-500"></i>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <h1 class="text-2xl font-bold text-slate-100">Prêt pour le transfert P2P</h1>
+        <p class="text-slate-400 text-sm">Partagez vos fichiers en direct, sans aucun serveur intermédiaire.</p>
+      </div>
+
+      <!-- CODE Local à 6 caractères -->
+      <div class="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-3">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Votre Code d'accès (6 caractères)</span>
+        <div class="flex items-center justify-between gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
+          <code id="my-peer-id" class="text-brand-400 font-mono text-2xl font-bold tracking-widest truncate">......</code>
+          <div class="flex items-center gap-1">
+            <button onclick="copyMyCode()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition" title="Copier le code">
+              <i data-lucide="copy" class="w-5 h-5"></i>
+            </button>
+            <button onclick="copyShareLink()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-400 transition" title="Copier le lien d'invitation">
+              <i data-lucide="share-2" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formulaire d'association manuelle -->
+      <div class="w-full space-y-3">
+        <div class="flex gap-2">
+          <input type="text" id="target-peer-id" maxlength="6" placeholder="Entrez le code à 6 caractères (ex: H58KD4)" 
+            oninput="this.value = this.value.toUpperCase()"
+            class="flex-1 bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-3 text-center text-base font-mono uppercase font-semibold tracking-wider focus:outline-none focus:border-brand-500 transition text-slate-200 placeholder:text-slate-600 placeholder:normal-case placeholder:tracking-normal placeholder:text-xs">
+          <button onclick="connectToPeer()" class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-3 rounded-xl text-sm flex items-center gap-2 transition shadow-lg shadow-brand-500/20 active:scale-95">
+            <i data-lucide="link" class="w-4 h-4"></i>
+            <span>Rejoindre</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Option QR Code -->
+      <div class="w-full pt-4 border-t border-slate-800/80 flex flex-col items-center gap-3">
+        <button onclick="toggleQRCode()" class="text-xs text-slate-400 hover:text-brand-500 transition flex items-center gap-1.5 font-medium">
+          <i data-lucide="qr-code" class="w-4 h-4"></i>
+          <span>Afficher le QR Code pour Smartphone</span>
+        </button>
+
+        <div id="qr-container" class="hidden bg-white p-4 rounded-2xl shadow-xl transition-all">
+          <div id="qrcode"></div>
+          <p class="text-slate-800 text-[11px] font-semibold mt-2 text-center">Scannez pour rejoindre la session</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Vue 2: Connecté / Transfert de Fichiers -->
+    <div id="transfer-view" class="w-full max-w-2xl hidden flex-col items-center space-y-6">
+      
+      <!-- Card d'état de connexion -->
+      <div class="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/50"></div>
+          <div>
+            <p class="text-xs text-slate-400">Connecté en direct avec le code</p>
+            <p id="connected-peer-id" class="font-mono text-base text-emerald-400 font-bold tracking-wider">XXXXXX</p>
+          </div>
+        </div>
+        <button onclick="disconnect()" class="px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 text-xs font-medium transition flex items-center gap-1">
+          <i data-lucide="power" class="w-3.5 h-3.5"></i>
+          <span>Déconnexion</span>
+        </button>
+      </div>
+
+      <!-- Zone de Drag & Drop -->
+      <div id="drop-zone" class="w-full border-2 border-dashed border-slate-700 hover:border-brand-500 bg-slate-900/40 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 group">
+        <input type="file" id="file-input" class="hidden" onchange="handleFileSelect(event)">
+        
+        <div class="w-16 h-16 bg-slate-800 group-hover:bg-brand-600/20 text-slate-400 group-hover:text-brand-500 rounded-2xl flex items-center justify-center mb-4 transition border border-slate-700/50 group-hover:border-brand-500/30 shadow-inner">
+          <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+        </div>
+
+        <h3 class="text-lg font-semibold text-slate-200 group-hover:text-brand-500 transition">Glissez un fichier ici</h3>
+        <p class="text-slate-400 text-sm mt-1">ou cliquez pour parcourir vos dossiers</p>
+        <span class="mt-4 text-xs bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Taille illimitée (P2P Direct)</span>
+      </div>
+
+      <!-- Panneau de Progression -->
+      <div id="progress-container" class="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4 hidden shadow-xl">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 overflow-hidden">
+            <div class="p-2 bg-brand-500/10 text-brand-500 rounded-lg">
+              <i data-lucide="file" class="w-5 h-5"></i>
+            </div>
+            <div class="truncate">
+              <p id="file-name" class="text-sm font-semibold text-slate-200 truncate">Fichier.zip</p>
+              <p id="file-size" class="text-xs text-slate-400">0 MB</p>
+            </div>
+          </div>
+          <span id="transfer-status-badge" class="text-xs font-semibold px-2.5 py-1 rounded-md bg-brand-500/10 text-brand-400 border border-brand-500/20">Envoi...</span>
+        </div>
+
+        <!-- Barre de progression -->
+        <div class="space-y-1.5">
+          <div class="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+            <div id="progress-bar" class="bg-gradient-to-r from-brand-500 to-indigo-400 h-full w-0 transition-all duration-100 rounded-full"></div>
+          </div>
+          <div class="flex justify-between text-xs text-slate-400 font-mono">
+            <span id="progress-percent">0%</span>
+            <span id="transfer-speed">0 KB/s</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/60 py-4">
+    <div class="max-w-5xl mx-auto px-4 flex justify-between items-center text-xs text-slate-500">
+      <p>LocalDrop P2P &copy; Ready for Vercel</p>
+      <div class="flex items-center gap-1 text-slate-400">
+        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i>
+        <span>Chiffrement WebRTC de bout en bout</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT LOGIQUE APPLICATIVE -->
+  <script>
+    // Initialisation des icônes Lucide
+    lucide.createIcons();
+
+    // Variables globales d'état
+    let peer = null;
+    let conn = null;
+    let myCode = '';
+
+    // Découpage des paquets P2P
+    const CHUNK_SIZE = 16 * 1024;
+    let incomingFileData = {
+      name: '',
+      size: 0,
+      mime: '',
+      chunks: [],
+      receivedSize: 0,
+      startTime: 0
+    };
+
+    // Elements DOM
+    const statusText = document.getElementById('status-text');
+    const statusBadge = document.getElementById('status-badge');
+    const myPeerIdEl = document.getElementById('my-peer-id');
+    const connectView = document.getElementById('connect-view');
+    const transferView = document.getElementById('transfer-view');
+    const connectedPeerIdEl = document.getElementById('connected-peer-id');
+
+    // Générateur de Code à 6 caractères (Chiffres + Lettres majuscules)
+    function generate6CharacterCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans caractères ambigus (0/O, 1/I)
+      let result = '';
+      for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    // UI Toasts & Status
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-msg');
+
+      toastMsg.innerText = message;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 4000);
+    }
+
+    function updateStatus(text, state = 'warning') {
+      statusText.innerText = text;
+      const dot = statusBadge.querySelector('span:first-child');
+
+      if (state === 'online') {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+      } else if (state === 'ready') {
+        dot.className = 'w-2 h-2 rounded-full bg-blue-400 animate-pulse';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+      }
+    }
+
+    // --- INITIALISATION PEERJS (AVEC CODE 6 CARACTÈRES) ---
+    function initPeer() {
+      myCode = generate6CharacterCode();
+
+      // Initialiser le nœud PeerJS avec l'ID personnalisé à 6 caractères
+      peer = new Peer(myCode);
+
+      peer.on('open', (id) => {
+        myCode = id;
+        myPeerIdEl.innerText = myCode;
+        updateStatus('Prêt à se connecter', 'ready');
+
+        // Récupérer le paramètre "code" ou "join" depuis l'URL (ex: site.com/?code=H58KD4)
+        const urlParams = new URLSearchParams(window.location.search);
+        const joinCode = (urlParams.get('code') || urlParams.get('join'))?.toUpperCase();
+        
+        if (joinCode && joinCode.length === 6) {
+          document.getElementById('target-peer-id').value = joinCode;
+          connectToPeer(joinCode);
+        }
+      });
+
+      // Écouter les connexions entrantes
+      peer.on('connection', (c) => {
+        conn = c;
+        setupConnectionHandlers();
+      });
+
+      peer.on('error', (err) => {
+        console.error('PeerJS Error:', err);
+        if (err.type === 'unavailable-id') {
+          // Régénérer si le code existe déjà par rareté
+          initPeer();
+        } else {
+          showToast('Erreur PeerJS: ' + err.type);
+          updateStatus('Erreur de réseau', 'error');
+        }
+      });
+    }
+
+    // --- SE CONNECTER À UN PAIR ---
+    function connectToPeer(targetCode = null) {
+      const code = (targetCode || document.getElementById('target-peer-id').value).trim().toUpperCase();
+      
+      if (!code || code.length !== 6) {
+        showToast('Veuillez entrer un code valide à 6 caractères.');
+        return;
+      }
+
+      if (code === myCode) {
+        showToast('Vous ne pouvez pas vous connecter à vous-même !');
+        return;
+      }
+
+      updateStatus('Connexion en cours...', 'warning');
+      conn = peer.connect(code);
+      setupConnectionHandlers();
+    }
+
+    // --- GESTION DE LA CONNEXION WEBRTC ---
+    function setupConnectionHandlers() {
+      conn.on('open', () => {
+        updateStatus('Connecté', 'online');
+        connectedPeerIdEl.innerText = conn.peer;
+
+        connectView.classList.add('hidden');
+        transferView.classList.remove('hidden');
+        transferView.classList.add('flex');
+
+        showToast('Connexion P2P établie !');
+      });
+
+      conn.on('data', (data) => {
+        handleIncomingData(data);
+      });
+
+      conn.on('close', () => {
+        showToast('La connexion a été fermée.');
+        resetToConnectView();
+      });
+
+      conn.on('error', () => {
+        showToast('Erreur de connexion.');
+        resetToConnectView();
+      });
+    }
+
+    function disconnect() {
+      if (conn) conn.close();
+      resetToConnectView();
+    }
+
+    function resetToConnectView() {
+      transferView.classList.add('hidden');
+      transferView.classList.remove('flex');
+      connectView.classList.remove('hidden');
+      updateStatus('Prêt à se connecter', 'ready');
+      document.getElementById('progress-container').classList.add('hidden');
+    }
+
+    // --- ENVOI DE FICHIER ---
+    function sendFile(file) {
+      if (!conn || !conn.open) {
+        showToast('Aucune connexion active.');
+        return;
+      }
+
+      const progressContainer = document.getElementById('progress-container');
+      const progressBar = document.getElementById('progress-bar');
+      const progressPercent = document.getElementById('progress-percent');
+      const fileNameEl = document.getElementById('file-name');
+      const fileSizeEl = document.getElementById('file-size');
+      const speedEl = document.getElementById('transfer-speed');
+      const badge = document.getElementById('transfer-status-badge');
+
+      progressContainer.classList.remove('hidden');
+      fileNameEl.innerText = file.name;
+      fileSizeEl.innerText = formatBytes(file.size);
+      badge.innerText = 'Envoi...';
+
+      conn.send({
+        type: 'header',
+        name: file.name,
+        size: file.size,
+        mime: file.type
+      });
+
+      let offset = 0;
+      const startTime = Date.now();
+      const reader = new FileReader();
+
+      const readNextSlice = () => {
+        const slice = file.slice(offset, offset + CHUNK_SIZE);
+        reader.readAsArrayBuffer(slice);
+      };
+
+      reader.onload = (e) => {
+        conn.send({
+          type: 'chunk',
+          data: e.target.result
+        });
+
+        offset += e.target.result.byteLength;
+        const progress = Math.min(100, Math.round((offset / file.size) * 100));
+
+        progressBar.style.width = `${progress}%`;
+        progressPercent.innerText = `${progress}%`;
+
+        const elapsedTime = (Date.now() - startTime) / 1000;
+        if (elapsedTime > 0) {
+          const speed = offset / elapsedTime;
+          speedEl.innerText = `${formatBytes(speed)}/s`;
+        }
+
+        if (offset < file.size) {
+          if (conn.dataChannel && conn.dataChannel.bufferedAmount > 8 * 1024 * 1024) {
+            setTimeout(readNextSlice, 50);
+          } else {
+            readNextSlice();
+          }
+        } else {
+          conn.send({ type: 'end' });
+          badge.innerText = 'Terminé !';
+          badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+          showToast('Fichier envoyé avec succès !');
+        }
+      };
+
+      readNextSlice();
+    }
+
+    // --- RÉCEPTION DE FICHIER ---
+    function handleIncomingData(data) {
+      const progressContainer = document.getElementById('progress-container');
+      const progressBar = document.getElementById('progress-bar');
+      const progressPercent = document.getElementById('progress-percent');
+      const fileNameEl = document.getElementById('file-name');
+      const fileSizeEl = document.getElementById('file-size');
+      const speedEl = document.getElementById('transfer-speed');
+      const badge = document.getElementById('transfer-status-badge');
+
+      if (data.type === 'header') {
+        incomingFileData = {
+          name: data.name,
+          size: data.size,
+          mime: data.mime,
+          chunks: [],
+          receivedSize: 0,
+          startTime: Date.now()
+        };
+
+        progressContainer.classList.remove('hidden');
+        fileNameEl.innerText = data.name;
+        fileSizeEl.innerText = formatBytes(data.size);
+        badge.innerText = 'Réception...';
+        progressBar.style.width = '0%';
+      } 
+      else if (data.type === 'chunk') {
+        incomingFileData.chunks.push(data.data);
+        incomingFileData.receivedSize += data.data.byteLength;
+
+        const progress = Math.min(100, Math.round((incomingFileData.receivedSize / incomingFileData.size) * 100));
+        progressBar.style.width = `${progress}%`;
+        progressPercent.innerText = `${progress}%`;
+
+        const elapsedTime = (Date.now() - incomingFileData.startTime) / 1000;
+        if (elapsedTime > 0) {
+          const speed = incomingFileData.receivedSize / elapsedTime;
+          speedEl.innerText = `${formatBytes(speed)}/s`;
+        }
+      } 
+      else if (data.type === 'end') {
+        const blob = new Blob(incomingFileData.chunks, { type: incomingFileData.mime || 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = incomingFileData.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        badge.innerText = 'Reçu !';
+        badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        showToast('Fichier reçu et téléchargé !');
+      }
+    }
+
+    // --- DRAG & DROP ---
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-brand-500', 'bg-brand-500/5');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-brand-500', 'bg-brand-500/5');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-brand-500', 'bg-brand-500/5');
+
+      if (e.dataTransfer.files.length > 0) {
+        sendFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleFileSelect(e) {
+      if (e.target.files.length > 0) {
+        sendFile(e.target.files[0]);
+      }
+    }
+
+    // --- LIEN & QR CODE ---
+    function copyMyCode() {
+      if (!myCode) return;
+      navigator.clipboard.writeText(myCode);
+      showToast('Code copié !');
+    }
+
+    function copyShareLink() {
+      if (!myCode) return;
+      const link = `${window.location.origin}${window.location.pathname}?code=${myCode}`;
+      navigator.clipboard.writeText(link);
+      showToast('Lien d\'invitation copié !');
+    }
+
+    function toggleQRCode() {
+      const qrContainer = document.getElementById('qr-container');
+      const qrcodeEl = document.getElementById('qrcode');
+
+      if (qrContainer.classList.contains('hidden')) {
+        qrcodeEl.innerHTML = '';
+        const shareUrl = `${window.location.origin}${window.location.pathname}?code=${myCode}`;
+        
+        new QRCode(qrcodeEl, {
+          text: shareUrl,
+          width: 140,
+          height: 140,
+          colorDark : "#0f172a",
+          colorLight : "#ffffff",
+          correctLevel : QRCode.CorrectLevel.H
+        });
+
+        qrContainer.classList.remove('hidden');
+      } else {
+        qrContainer.classList.add('hidden');
+      }
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    window.onload = initPeer;
+  </script>
+</body>
+</html>
